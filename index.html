@@ -1,55 +1,40 @@
 <!doctype html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DreamGroove Voice Recorder</title>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Voice Markdown Recorder</title>
 
-  <style>
-    body {
-      font-family: sans-serif;
-      text-align: center;
-      padding: 20px;
-      background: #0d0d0d;
-      color: white;
-    }
+<style>
+body {
+  font-family: sans-serif;
+  text-align: center;
+  background: black;
+  color: white;
+}
 
-    #status {
-      margin-bottom: 20px;
-      font-size: 16px;
-      opacity: 0.8;
-    }
+#recordButton {
+  width: 95vw;
+  height: 140px;
+  font-size: 24px;
+  border-radius: 30px;
+  background: #222;
+  color: white;
+  border: none;
+}
 
-    /* 🔥 iPhone最適化ボタン */
-    #recordButton {
-      width: 95vw;
-      max-width: 400px;
-      height: 140px;
-      font-size: 24px;
-      border-radius: 30px;
-      border: none;
-      background: #222;
-      color: white;
-      margin-bottom: 20px;
-      transition: all 0.15s ease;
-    }
+#recordButton.recording {
+  background: red;
+  transform: scale(0.95);
+}
 
-    /* 押してる間 */
-    #recordButton.recording {
-      background: red;
-      transform: scale(0.95);
-      box-shadow: 0 0 25px red;
-    }
-
-    .preview {
-      text-align: left;
-      background: #111;
-      padding: 15px;
-      border-radius: 10px;
-      white-space: pre-wrap;
-      min-height: 120px;
-    }
-  </style>
+.preview {
+  background: #111;
+  padding: 15px;
+  margin-top: 20px;
+  min-height: 120px;
+}
+</style>
 </head>
 
 <body>
@@ -72,72 +57,54 @@ const btn = document.getElementById("recordButton");
 const preview = document.getElementById("preview");
 const status = document.getElementById("status");
 
-// ======================
-// 音声認識
-// ======================
 if (!('webkitSpeechRecognition' in window)) {
-  status.textContent = "❌ このブラウザは非対応";
+  status.textContent = "非対応ブラウザ";
   return;
 }
 
 recognition = new webkitSpeechRecognition();
 recognition.lang = "ja-JP";
 recognition.continuous = false;
-recognition.interimResults = false;
+recognition.interimResults = true;
 
-// 音声取得
+// ★ 修正①
 recognition.onresult = (event) => {
-  if (!isPressing) return;
-
-  const text = event.results[0][0].transcript;
-  buffer += text + "\n";
+  for (let i = event.resultIndex; i < event.results.length; i++) {
+    if (event.results[i].isFinal) {
+      buffer += event.results[i][0].transcript + "\n";
+    }
+  }
   preview.textContent = buffer;
 };
 
-// 🔥 iPhone安定化（超重要）
+// ★ 修正②
 recognition.onend = () => {
-  if (isPressing) {
-    try {
-      recognition.start();
-    } catch(e) {}
-  }
+  if (isPressing) recognition.start();
 };
 
-// ======================
-// 録音開始（長押し）
-// ======================
+// 録音開始
 btn.addEventListener("touchstart", (e) => {
   e.preventDefault();
-
-  if (isPressing) return;
-
   isPressing = true;
   buffer = "";
-  status.textContent = "🎤 録音中...";
   btn.classList.add("recording");
-
-  try {
-    recognition.start();
-  } catch(e) {}
-
+  status.textContent = "録音中";
+  recognition.start();
 }, { passive: false });
 
-// ======================
-// 録音終了 → 保存
-// ======================
+// 録音終了
 btn.addEventListener("touchend", async (e) => {
   e.preventDefault();
-
-  if (!isPressing) return;
 
   isPressing = false;
   recognition.stop();
   btn.classList.remove("recording");
 
-  status.textContent = "⏳ 保存中...";
+  // ★ 修正③（ここ重要）
+  await new Promise(r => setTimeout(r, 300));
 
   if (!buffer.trim()) {
-    status.textContent = "⚠️ 空です";
+    status.textContent = "空です";
     return;
   }
 
@@ -158,12 +125,11 @@ btn.addEventListener("touchend", async (e) => {
     });
 
     const data = await res.json();
-
-    status.textContent = "☁ 保存完了";
+    status.textContent = "保存完了";
 
   } catch (e) {
+    status.textContent = "保存失敗";
     console.error(e);
-    status.textContent = "❌ 保存失敗";
   }
 
 }, { passive: false });
