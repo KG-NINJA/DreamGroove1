@@ -1,278 +1,526 @@
 <!doctype html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>DreamGroove Voice Recorder</title>
-
-<style>
-body {
-  font-family: sans-serif;
-  text-align: center;
-  background: #000;
-  color: #fff;
-}
-
-#status {
-  margin: 10px;
-  font-size: 14px;
-  opacity: 0.8;
-}
-
-/* 録音ボタン */
-#recordButton {
-  width: 95vw;
-  height: 140px;
-  font-size: 24px;
-  border-radius: 30px;
-  border: none;
-  background: #222;
-  color: white;
-}
-
-#recordButton.recording {
-  background: red;
-  transform: scale(0.96);
-}
-
-/* 保存ボタン */
-#saveAllButton {
-  width: 95vw;
-  height: 60px;
-  font-size: 20px;
-  margin-top: 15px;
-  border-radius: 20px;
-  border: none;
-  background: #0af;
-  color: black;
-}
-
-.preview {
-  margin-top: 20px;
-  background: #111;
-  padding: 15px;
-  min-height: 120px;
-  white-space: pre-wrap;
-}
-</style>
-</head>
-
-<body>
-
-<h2>🎤 Voice Recorder</h2>
-<p id="status">準備完了</p>
-
-<button id="recordButton">押して話す</button>
-<button id="saveAllButton">まとめて保存</button>
-
-<pre id="preview" class="preview"></pre>
-
-<script>
-document.addEventListener("DOMContentLoaded", () => {
-
-let recognition;
-let isPressing = false;
-let isSaving = false;
-
-let finalBuffer = "";
-let draftBuffer = "";
-let notes = [];
-
-const btn = document.getElementById("recordButton");
-const preview = document.getElementById("preview");
-const status = document.getElementById("status");
-
-// ======================
-// 音声認識
-// ======================
-if (!('webkitSpeechRecognition' in window)) {
-  status.textContent = "非対応ブラウザ";
-  return;
-}
-
-recognition = new webkitSpeechRecognition();
-recognition.lang = "ja-JP";
-recognition.continuous = true;
-recognition.interimResults = true;
-
-// 🔥 音声結果（冗長）
-recognition.onresult = (event) => {
-
-  draftBuffer = "";
-
-  for (let i = event.resultIndex; i < event.results.length; i++) {
-    const txt = event.results[i][0].transcript;
-
-    if (event.results[i].isFinal) {
-      finalBuffer += txt + "\n";
-    } else {
-      draftBuffer += txt;
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>DreamGroove Voice Recorder</title>
+  <style>
+    :root {
+      --bg: #000;
+      --panel: #111;
+      --panel-2: #1a1a1a;
+      --text: #fff;
+      --muted: #bdbdbd;
+      --danger: #ff3b30;
+      --accent: #39a0ff;
+      --ok: #32d74b;
+      --radius: 24px;
     }
-  }
 
-  preview.textContent = finalBuffer + draftBuffer;
-};
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
 
-// 🔥 終了時処理
-recognition.onend = async () => {
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
 
-  if (isPressing) {
-    try { recognition.start(); } catch(e) {}
-    return;
-  }
+    body {
+      padding: 16px;
+      padding-bottom: calc(16px + env(safe-area-inset-bottom));
+    }
 
-  await new Promise(r => setTimeout(r, 300));
+    .app {
+      max-width: 720px;
+      margin: 0 auto;
+    }
 
-  if (!finalBuffer.trim() && draftBuffer.trim()) {
-    finalBuffer = draftBuffer;
-  }
+    h1 {
+      margin: 8px 0 10px;
+      font-size: 28px;
+      line-height: 1.2;
+    }
 
-  if (!finalBuffer.trim()) {
-    status.textContent = "⚠️ 音声取得失敗";
-    return;
-  }
+    .status {
+      margin: 0 0 14px;
+      min-height: 24px;
+      color: var(--muted);
+      font-size: 14px;
+    }
 
-  const md = buildMarkdown(finalBuffer);
+    .card {
+      background: var(--panel);
+      border-radius: var(--radius);
+      padding: 14px;
+      margin-bottom: 14px;
+    }
 
-  notes.push(md);
+    #recordButton {
+      display: block;
+      width: 100%;
+      min-height: 148px;
+      border: 0;
+      border-radius: 32px;
+      background: var(--panel-2);
+      color: var(--text);
+      font-size: 26px;
+      font-weight: 700;
+      touch-action: none;
+      user-select: none;
+      transition: transform 0.12s ease, background 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease;
+      box-shadow: 0 0 0 rgba(255, 59, 48, 0);
+    }
 
-  finalBuffer = "";
-  draftBuffer = "";
+    #recordButton.arming {
+      background: #222;
+      transform: scale(0.995);
+    }
 
-  status.textContent = `📝 ${notes.length}件保存待ち`;
+    #recordButton.recording {
+      background: var(--danger);
+      transform: scale(0.975);
+      box-shadow: 0 0 24px rgba(255, 59, 48, 0.35);
+    }
 
-  preview.textContent = notes.join("\n---\n");
-};
+    #recordButton:disabled,
+    #saveAllButton:disabled,
+    #clearButton:disabled {
+      opacity: 0.55;
+    }
 
-// ======================
-// 録音開始
-// ======================
-btn.addEventListener("touchstart", (e) => {
-  e.preventDefault();
+    .button-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 12px;
+    }
 
-  if (isSaving) return;
+    .action-btn {
+      min-height: 58px;
+      border: 0;
+      border-radius: 18px;
+      font-size: 18px;
+      font-weight: 700;
+      touch-action: manipulation;
+    }
 
-  isPressing = true;
+    #saveAllButton {
+      background: var(--accent);
+      color: #00111f;
+    }
 
-  finalBuffer = "";
-  draftBuffer = "";
+    #clearButton {
+      background: #2a2a2a;
+      color: var(--text);
+    }
 
-  btn.classList.add("recording");
-  status.textContent = "🎤 録音中";
+    .meta {
+      font-size: 13px;
+      color: var(--muted);
+      margin: 8px 0 0;
+    }
 
-  recognition.start();
+    .preview {
+      min-height: 180px;
+      background: var(--panel);
+      border-radius: var(--radius);
+      padding: 14px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      text-align: left;
+      line-height: 1.5;
+      font-size: 15px;
+    }
 
-}, { passive: false });
+    .hint {
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <h1>🎤 Voice Recorder</h1>
+    <p id="status" class="status">準備完了</p>
 
-// ======================
-// 録音終了
-// ======================
-window.addEventListener("touchend", (e) => {
+    <section class="card">
+      <button id="recordButton" type="button">長押しで録音</button>
+      <div class="button-row">
+        <button id="saveAllButton" class="action-btn" type="button">まとめて保存</button>
+        <button id="clearButton" class="action-btn" type="button">クリア</button>
+      </div>
+      <p id="meta" class="meta">保存待ち 0件</p>
+      <p class="hint">短すぎる長押しは無視します。録音後はまとめて保存を押してください。</p>
+    </section>
 
-  if (!isPressing) return;
+    <pre id="preview" class="preview"></pre>
+  </main>
 
-  isPressing = false;
-  recognition.stop();
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const WORKER_URL = "https://dreamgroove1.fuwafuwow.workers.dev/";
+      const API_KEY = "mysecret123";
 
-  btn.classList.remove("recording");
-  status.textContent = "⏳ 処理中...";
+      const HOLD_THRESHOLD_MS = 180;
+      const END_SETTLE_MS = 450;
+      const SAVE_TIMEOUT_MS = 7000;
 
-});
+      let recognition = null;
+      let isArming = false;
+      let isPressing = false;
+      let isRecording = false;
+      let isSaving = false;
 
-// ======================
-// まとめ保存（安定版）
-// ======================
-document.getElementById("saveAllButton").addEventListener("click", async () => {
+      let armTimer = null;
+      let pressStartedAt = 0;
 
-  if (notes.length === 0) {
-    status.textContent = "⚠️ 保存する内容なし";
-    return;
-  }
+      let finalBuffer = "";
+      let draftBuffer = "";
+      let notes = [];
 
-  if (isSaving) return;
+      const statusEl = document.getElementById("status");
+      const metaEl = document.getElementById("meta");
+      const previewEl = document.getElementById("preview");
+      const recordButton = document.getElementById("recordButton");
+      const saveAllButton = document.getElementById("saveAllButton");
+      const clearButton = document.getElementById("clearButton");
 
-  isSaving = true;
+      const SpeechRecognitionClass =
+        window.SpeechRecognition || window.webkitSpeechRecognition;
 
-  status.textContent = "☁ 保存中...";
+      if (!SpeechRecognitionClass) {
+        setStatus("❌ このブラウザは音声認識に非対応です");
+        recordButton.disabled = true;
+        saveAllButton.disabled = true;
+        clearButton.disabled = true;
+        return;
+      }
 
-  const text = notes.join("\n\n---\n\n");
+      recognition = new SpeechRecognitionClass();
+      recognition.lang = "ja-JP";
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.maxAlternatives = 1;
 
-  try {
-    await safeFetch(text);
-    status.textContent = "☁ 保存完了";
-    notes = [];
-    preview.textContent = "";
-  } catch (e) {
-    status.textContent = "❌ 保存失敗";
-  }
+      recognition.onresult = (event) => {
+        let newDraft = "";
 
-  isSaving = false;
-});
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript || "";
+          if (event.results[i].isFinal) {
+            finalBuffer += transcript + "\n";
+          } else {
+            newDraft += transcript;
+          }
+        }
 
-// ======================
-// 安定fetch（タイムアウト＋リトライ）
-// ======================
-async function safeFetch(content) {
+        draftBuffer = newDraft;
+        renderPreview();
+      };
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 5000);
+      recognition.onerror = (event) => {
+        if (event.error === "no-speech") {
+          setStatus("⚠️ 音声が小さいか無音でした");
+          return;
+        }
+        if (event.error === "aborted") {
+          return;
+        }
+        console.error("speech error:", event.error);
+        setStatus("❌ 音声認識エラー: " + event.error);
+      };
 
-  try {
-    const res = await fetch("https://dreamgroove1.fuwafuwow.workers.dev/", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": "mysecret123"
-      },
-      body: JSON.stringify({
-        content,
-        tag: "voice",
-        timestamp: new Date().toISOString()
-      }),
-      signal: controller.signal
-    });
+      recognition.onend = async () => {
+        isRecording = false;
+        recordButton.classList.remove("recording");
 
-    clearTimeout(timeout);
+        if (isPressing) {
+          startRecognitionSafely();
+          return;
+        }
 
-    if (!res.ok) throw new Error();
+        setStatus("⏳ 処理中...");
+        await sleep(END_SETTLE_MS);
 
-  } catch {
-    // 🔁 リトライ
-    await fetch("https://dreamgroove1.fuwafuwow.workers.dev/", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": "mysecret123"
-      },
-      body: JSON.stringify({
-        content,
-        tag: "voice",
-        timestamp: new Date().toISOString()
-      })
-    });
-  }
-}
+        const text = pickBestTranscript();
+        finalBuffer = "";
+        draftBuffer = "";
 
-// ======================
-// Markdown生成
-// ======================
-function buildMarkdown(text) {
+        if (!text.trim()) {
+          renderPreview();
+          setStatus("⚠️ 音声が取得できませんでした");
+          return;
+        }
 
-  const clean = text.trim().replace(/\n{3,}/g, "\n\n");
+        notes.push(buildMarkdown(text));
+        renderPreview();
+        updateMeta();
+        setStatus(`📝 ${notes.length}件たまりました`);
+      };
 
-  return `# Voice Note
+      function setStatus(text) {
+        statusEl.textContent = text;
+      }
+
+      function updateMeta() {
+        metaEl.textContent = `保存待ち ${notes.length}件`;
+      }
+
+      function sleep(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+      }
+
+      function pickBestTranscript() {
+        const finalText = normalizeText(finalBuffer);
+        const draftText = normalizeText(draftBuffer);
+        return finalText || draftText || "";
+      }
+
+      function normalizeText(text) {
+        return String(text || "")
+          .replace(/\u3000/g, " ")
+          .replace(/[ \t]+\n/g, "\n")
+          .replace(/\n{3,}/g, "\n\n")
+          .trim();
+      }
+
+      function buildMarkdown(text) {
+        const cleaned = normalizeText(text);
+        const summary = cleaned.slice(0, 80);
+
+        return `# Voice Note
 
 ## Summary
-${clean.slice(0,80)}
+${summary}
 
 ## Content
-${clean}
+${cleaned}
 
----`;
-}
+---
+time: ${new Date().toISOString()}
+tag: voice
+source: browser
+`;
+      }
 
-});
-</script>
+      function renderPreview() {
+        const pendingVoice = pickBestTranscript();
+        let text = "";
 
+        if (notes.length > 0) {
+          text += notes.join("\n\n---\n\n");
+        }
+
+        if (pendingVoice) {
+          if (text) text += "\n\n---\n\n";
+          text += `【録音中プレビュー】\n${pendingVoice}`;
+        }
+
+        previewEl.textContent = text || "";
+      }
+
+      function startRecognitionSafely() {
+        if (isRecording) return;
+
+        try {
+          recognition.start();
+          isRecording = true;
+          recordButton.classList.add("recording");
+          setStatus("🎤 録音中...");
+        } catch (e) {
+          console.error("start error:", e);
+        }
+      }
+
+      function beginArm() {
+        if (isSaving || isPressing || isArming) return;
+
+        isArming = true;
+        isPressing = true;
+        pressStartedAt = Date.now();
+        finalBuffer = "";
+        draftBuffer = "";
+        recordButton.classList.add("arming");
+        setStatus("…録音準備中");
+
+        clearTimeout(armTimer);
+        armTimer = setTimeout(() => {
+          if (!isPressing) return;
+          recordButton.classList.remove("arming");
+          startRecognitionSafely();
+        }, HOLD_THRESHOLD_MS);
+      }
+
+      function endPress() {
+        if (!isPressing && !isArming && !isRecording) return;
+
+        const heldMs = Date.now() - pressStartedAt;
+        clearTimeout(armTimer);
+
+        isArming = false;
+        isPressing = false;
+        recordButton.classList.remove("arming");
+
+        if (!isRecording) {
+          if (heldMs < HOLD_THRESHOLD_MS) {
+            setStatus("⚠️ もう少し長く押してください");
+          }
+          return;
+        }
+
+        setStatus("⏹ 録音終了");
+        try {
+          recognition.stop();
+        } catch (e) {
+          console.error("stop error:", e);
+        }
+      }
+
+      async function safeFetch(content) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), SAVE_TIMEOUT_MS);
+
+        try {
+          const res = await fetch(WORKER_URL, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-api-key": API_KEY
+            },
+            body: JSON.stringify({
+              content,
+              tag: "voice",
+              timestamp: new Date().toISOString()
+            }),
+            signal: controller.signal
+          });
+
+          clearTimeout(timeoutId);
+
+          const raw = await res.text();
+          let data = null;
+          try {
+            data = raw ? JSON.parse(raw) : null;
+          } catch {
+            data = null;
+          }
+
+          if (!res.ok) {
+            throw new Error(data?.error || raw || `HTTP ${res.status}`);
+          }
+
+          return data;
+        } catch (firstError) {
+          clearTimeout(timeoutId);
+
+          await sleep(500);
+
+          const retryRes = await fetch(WORKER_URL, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-api-key": API_KEY
+            },
+            body: JSON.stringify({
+              content,
+              tag: "voice",
+              timestamp: new Date().toISOString()
+            })
+          });
+
+          const retryRaw = await retryRes.text();
+          let retryData = null;
+          try {
+            retryData = retryRaw ? JSON.parse(retryRaw) : null;
+          } catch {
+            retryData = null;
+          }
+
+          if (!retryRes.ok) {
+            throw new Error(retryData?.error || retryRaw || `HTTP ${retryRes.status}`);
+          }
+
+          return retryData;
+        }
+      }
+
+      async function saveAll() {
+        if (isSaving) return;
+
+        if (notes.length === 0) {
+          setStatus("⚠️ 保存する内容がありません");
+          return;
+        }
+
+        isSaving = true;
+        toggleButtons(true);
+        setStatus("☁ 保存中...");
+
+        const payload = notes.join("\n\n---\n\n");
+
+        try {
+          const result = await safeFetch(payload);
+          notes = [];
+          renderPreview();
+          updateMeta();
+          setStatus("☁ 保存完了" + (result?.file ? `: ${result.file}` : ""));
+        } catch (e) {
+          console.error("save error:", e);
+          setStatus("❌ 保存失敗: " + (e?.message || "unknown error"));
+        } finally {
+          isSaving = false;
+          toggleButtons(false);
+        }
+      }
+
+      function clearAll() {
+        if (isSaving) return;
+        notes = [];
+        finalBuffer = "";
+        draftBuffer = "";
+        renderPreview();
+        updateMeta();
+        setStatus("🧹 クリアしました");
+      }
+
+      function toggleButtons(disabled) {
+        recordButton.disabled = disabled;
+        saveAllButton.disabled = disabled;
+        clearButton.disabled = disabled;
+      }
+
+      recordButton.addEventListener("touchstart", (e) => {
+        e.preventDefault();
+        beginArm();
+      }, { passive: false });
+
+      recordButton.addEventListener("touchend", (e) => {
+        e.preventDefault();
+        endPress();
+      }, { passive: false });
+
+      recordButton.addEventListener("touchcancel", (e) => {
+        e.preventDefault();
+        endPress();
+      }, { passive: false });
+
+      window.addEventListener("touchend", () => {
+        endPress();
+      }, { passive: true });
+
+      saveAllButton.addEventListener("click", saveAll);
+      clearButton.addEventListener("click", clearAll);
+
+      updateMeta();
+      renderPreview();
+    });
+  </script>
 </body>
 </html>
