@@ -9,31 +9,38 @@
 body {
   font-family: sans-serif;
   text-align: center;
-  background: black;
-  color: white;
+  background: #000;
+  color: #fff;
 }
 
+#status {
+  margin: 10px;
+  font-size: 14px;
+  opacity: 0.8;
+}
+
+/* 録音ボタン */
 #recordButton {
   width: 95vw;
   height: 140px;
   font-size: 24px;
   border-radius: 30px;
+  border: none;
   background: #222;
   color: white;
-  border: none;
-  margin-top: 20px;
 }
 
 #recordButton.recording {
   background: red;
-  transform: scale(0.95);
+  transform: scale(0.96);
 }
 
+/* 保存ボタン */
 #saveAllButton {
   width: 95vw;
   height: 60px;
   font-size: 20px;
-  margin-top: 20px;
+  margin-top: 15px;
   border-radius: 20px;
   border: none;
   background: #0af;
@@ -41,9 +48,9 @@ body {
 }
 
 .preview {
+  margin-top: 20px;
   background: #111;
   padding: 15px;
-  margin-top: 20px;
   min-height: 120px;
   white-space: pre-wrap;
 }
@@ -52,7 +59,7 @@ body {
 
 <body>
 
-<h1>🎤 Voice Recorder</h1>
+<h2>🎤 Voice Recorder</h2>
 <p id="status">準備完了</p>
 
 <button id="recordButton">押して話す</button>
@@ -65,8 +72,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
 let recognition;
 let isPressing = false;
-let buffer = "";
-let notes = []; // 🔥 まとめ保存用
+let isSaving = false;
+
+let finalBuffer = "";
+let draftBuffer = "";
+let notes = [];
 
 const btn = document.getElementById("recordButton");
 const preview = document.getElementById("preview");
@@ -82,38 +92,54 @@ if (!('webkitSpeechRecognition' in window)) {
 
 recognition = new webkitSpeechRecognition();
 recognition.lang = "ja-JP";
-recognition.continuous = false;
+recognition.continuous = true;
 recognition.interimResults = true;
 
-// 音声取得
+// 🔥 音声結果（冗長）
 recognition.onresult = (event) => {
+
+  draftBuffer = "";
+
   for (let i = event.resultIndex; i < event.results.length; i++) {
+    const txt = event.results[i][0].transcript;
+
     if (event.results[i].isFinal) {
-      buffer += event.results[i][0].transcript + "\n";
+      finalBuffer += txt + "\n";
+    } else {
+      draftBuffer += txt;
     }
   }
-  preview.textContent = notes.join("\n---\n") + "\n" + buffer;
+
+  preview.textContent = finalBuffer + draftBuffer;
 };
 
-// 🔥 録音終了時
-recognition.onend = () => {
+// 🔥 終了時処理
+recognition.onend = async () => {
 
   if (isPressing) {
-    recognition.start();
+    try { recognition.start(); } catch(e) {}
     return;
   }
 
-  if (!buffer.trim()) {
+  await new Promise(r => setTimeout(r, 300));
+
+  if (!finalBuffer.trim() && draftBuffer.trim()) {
+    finalBuffer = draftBuffer;
+  }
+
+  if (!finalBuffer.trim()) {
     status.textContent = "⚠️ 音声取得失敗";
     return;
   }
 
-  // 🔥 蓄積
-  notes.push(buffer);
+  const md = buildMarkdown(finalBuffer);
 
-  buffer = "";
+  notes.push(md);
 
-  status.textContent = `📝 ${notes.length}件たまってます`;
+  finalBuffer = "";
+  draftBuffer = "";
+
+  status.textContent = `📝 ${notes.length}件保存待ち`;
 
   preview.textContent = notes.join("\n---\n");
 };
@@ -124,10 +150,13 @@ recognition.onend = () => {
 btn.addEventListener("touchstart", (e) => {
   e.preventDefault();
 
-  if (isPressing) return;
+  if (isSaving) return;
 
   isPressing = true;
-  buffer = "";
+
+  finalBuffer = "";
+  draftBuffer = "";
+
   btn.classList.add("recording");
   status.textContent = "🎤 録音中";
 
@@ -138,21 +167,20 @@ btn.addEventListener("touchstart", (e) => {
 // ======================
 // 録音終了
 // ======================
-btn.addEventListener("touchend", (e) => {
-  e.preventDefault();
+window.addEventListener("touchend", (e) => {
 
   if (!isPressing) return;
 
   isPressing = false;
   recognition.stop();
-  btn.classList.remove("recording");
 
+  btn.classList.remove("recording");
   status.textContent = "⏳ 処理中...";
 
-}, { passive: false });
+});
 
 // ======================
-// まとめて保存
+// まとめ保存（安定版）
 // ======================
 document.getElementById("saveAllButton").addEventListener("click", async () => {
 
@@ -161,10 +189,33 @@ document.getElementById("saveAllButton").addEventListener("click", async () => {
     return;
   }
 
-  status.textContent = "☁ まとめて保存中...";
+  if (isSaving) return;
 
-  const allText = notes.join("\n\n---\n\n");
-  const timestamp = new Date().toISOString();
+  isSaving = true;
+
+  status.textContent = "☁ 保存中...";
+
+  const text = notes.join("\n\n---\n\n");
+
+  try {
+    await safeFetch(text);
+    status.textContent = "☁ 保存完了";
+    notes = [];
+    preview.textContent = "";
+  } catch (e) {
+    status.textContent = "❌ 保存失敗";
+  }
+
+  isSaving = false;
+});
+
+// ======================
+// 安定fetch（タイムアウト＋リトライ）
+// ======================
+async function safeFetch(content) {
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
 
   try {
     const res = await fetch("https://dreamgroove1.fuwafuwow.workers.dev/", {
@@ -174,26 +225,51 @@ document.getElementById("saveAllButton").addEventListener("click", async () => {
         "x-api-key": "mysecret123"
       },
       body: JSON.stringify({
-        content: allText,
+        content,
         tag: "voice",
-        timestamp
-      })
+        timestamp: new Date().toISOString()
+      }),
+      signal: controller.signal
     });
 
-    const data = await res.json();
+    clearTimeout(timeout);
 
-    status.textContent = "☁ 保存完了";
+    if (!res.ok) throw new Error();
 
-    // 🔥 リセット
-    notes = [];
-    preview.textContent = "";
-
-  } catch (e) {
-    console.error(e);
-    status.textContent = "❌ 保存失敗";
+  } catch {
+    // 🔁 リトライ
+    await fetch("https://dreamgroove1.fuwafuwow.workers.dev/", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": "mysecret123"
+      },
+      body: JSON.stringify({
+        content,
+        tag: "voice",
+        timestamp: new Date().toISOString()
+      })
+    });
   }
+}
 
-});
+// ======================
+// Markdown生成
+// ======================
+function buildMarkdown(text) {
+
+  const clean = text.trim().replace(/\n{3,}/g, "\n\n");
+
+  return `# Voice Note
+
+## Summary
+${clean.slice(0,80)}
+
+## Content
+${clean}
+
+---`;
+}
 
 });
 </script>
