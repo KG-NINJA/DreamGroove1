@@ -6,34 +6,56 @@
 <title>Voice Markdown Recorder</title>
 
 <style>
-body {
-  font-family: sans-serif;
-  text-align: center;
-  background: black;
-  color: white;
-}
+  body {
+    font-family: sans-serif;
+    text-align: center;
+    background: #000;
+    color: #fff;
+    margin: 0;
+    padding: 20px;
+  }
 
-#recordButton {
-  width: 95vw;
-  height: 140px;
-  font-size: 24px;
-  border-radius: 30px;
-  background: #222;
-  color: white;
-  border: none;
-}
+  h1 {
+    font-size: 40px;
+    margin: 20px 0;
+  }
 
-#recordButton.recording {
-  background: red;
-  transform: scale(0.95);
-}
+  #status {
+    margin: 20px 0;
+    font-size: 16px;
+    opacity: 0.8;
+  }
 
-.preview {
-  background: #111;
-  padding: 15px;
-  margin-top: 20px;
-  min-height: 120px;
-}
+  /* 大きく押しやすいボタン */
+  #recordButton {
+    width: 95vw;
+    max-width: 420px;
+    height: 140px;
+    font-size: 24px;
+    border-radius: 30px;
+    border: none;
+    background: #222;
+    color: white;
+    margin-top: 20px;
+    transition: all 0.15s ease;
+  }
+
+  /* 録音中の状態 */
+  #recordButton.recording {
+    background: red;
+    transform: scale(0.95);
+    box-shadow: 0 0 25px red;
+  }
+
+  .preview {
+    margin-top: 30px;
+    text-align: left;
+    background: #111;
+    padding: 15px;
+    border-radius: 10px;
+    min-height: 120px;
+    white-space: pre-wrap;
+  }
 </style>
 </head>
 
@@ -57,17 +79,25 @@ const btn = document.getElementById("recordButton");
 const preview = document.getElementById("preview");
 const status = document.getElementById("status");
 
+// ======================
+// 音声認識チェック
+// ======================
 if (!('webkitSpeechRecognition' in window)) {
-  status.textContent = "非対応ブラウザ";
+  status.textContent = "❌ 非対応ブラウザ";
   return;
 }
 
+// ======================
+// 初期化
+// ======================
 recognition = new webkitSpeechRecognition();
 recognition.lang = "ja-JP";
 recognition.continuous = false;
 recognition.interimResults = true;
 
-// ★ 修正①
+// ======================
+// 音声取得
+// ======================
 recognition.onresult = (event) => {
   for (let i = event.resultIndex; i < event.results.length; i++) {
     if (event.results[i].isFinal) {
@@ -77,34 +107,22 @@ recognition.onresult = (event) => {
   preview.textContent = buffer;
 };
 
-// ★ 修正②
-recognition.onend = () => {
-  if (isPressing) recognition.start();
-};
+// ======================
+// 録音終了時（ここで保存）
+// ======================
+recognition.onend = async () => {
 
-// 録音開始
-btn.addEventListener("touchstart", (e) => {
-  e.preventDefault();
-  isPressing = true;
-  buffer = "";
-  btn.classList.add("recording");
-  status.textContent = "録音中";
-  recognition.start();
-}, { passive: false });
+  // 録音中なら再開（iPhone対策）
+  if (isPressing) {
+    try {
+      recognition.start();
+    } catch(e) {}
+    return;
+  }
 
-// 録音終了
-btn.addEventListener("touchend", async (e) => {
-  e.preventDefault();
-
-  isPressing = false;
-  recognition.stop();
-  btn.classList.remove("recording");
-
-  // ★ 修正③（ここ重要）
-  await new Promise(r => setTimeout(r, 300));
-
+  // 保存処理
   if (!buffer.trim()) {
-    status.textContent = "空です";
+    status.textContent = "⚠️ 音声取得失敗";
     return;
   }
 
@@ -125,13 +143,46 @@ btn.addEventListener("touchend", async (e) => {
     });
 
     const data = await res.json();
-    status.textContent = "保存完了";
+    status.textContent = "☁ 保存完了";
 
   } catch (e) {
-    status.textContent = "保存失敗";
     console.error(e);
+    status.textContent = "❌ 保存失敗";
   }
+};
 
+// ======================
+// タッチ開始（録音開始）
+// ======================
+btn.addEventListener("touchstart", (e) => {
+  e.preventDefault();
+
+  if (isPressing) return;
+
+  isPressing = true;
+  buffer = "";
+  status.textContent = "🎤 録音中...";
+  btn.classList.add("recording");
+
+  try {
+    recognition.start();
+  } catch(e) {}
+
+}, { passive: false });
+
+// ======================
+// タッチ終了（録音停止）
+// ======================
+btn.addEventListener("touchend", (e) => {
+  e.preventDefault();
+
+  if (!isPressing) return;
+
+  isPressing = false;
+  recognition.stop();
+  btn.classList.remove("recording");
+
+  status.textContent = "⏳ 処理中...";
 }, { passive: false });
 
 });
