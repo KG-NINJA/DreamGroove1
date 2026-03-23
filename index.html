@@ -3,68 +3,60 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Voice Markdown Recorder</title>
+<title>DreamGroove Voice Recorder</title>
 
 <style>
-  body {
-    font-family: sans-serif;
-    text-align: center;
-    background: #000;
-    color: #fff;
-    margin: 0;
-    padding: 20px;
-  }
+body {
+  font-family: sans-serif;
+  text-align: center;
+  background: black;
+  color: white;
+}
 
-  h1 {
-    font-size: 40px;
-    margin: 20px 0;
-  }
+#recordButton {
+  width: 95vw;
+  height: 140px;
+  font-size: 24px;
+  border-radius: 30px;
+  background: #222;
+  color: white;
+  border: none;
+  margin-top: 20px;
+}
 
-  #status {
-    margin: 20px 0;
-    font-size: 16px;
-    opacity: 0.8;
-  }
+#recordButton.recording {
+  background: red;
+  transform: scale(0.95);
+}
 
-  /* 大きく押しやすいボタン */
-  #recordButton {
-    width: 95vw;
-    max-width: 420px;
-    height: 140px;
-    font-size: 24px;
-    border-radius: 30px;
-    border: none;
-    background: #222;
-    color: white;
-    margin-top: 20px;
-    transition: all 0.15s ease;
-  }
+#saveAllButton {
+  width: 95vw;
+  height: 60px;
+  font-size: 20px;
+  margin-top: 20px;
+  border-radius: 20px;
+  border: none;
+  background: #0af;
+  color: black;
+}
 
-  /* 録音中の状態 */
-  #recordButton.recording {
-    background: red;
-    transform: scale(0.95);
-    box-shadow: 0 0 25px red;
-  }
-
-  .preview {
-    margin-top: 30px;
-    text-align: left;
-    background: #111;
-    padding: 15px;
-    border-radius: 10px;
-    min-height: 120px;
-    white-space: pre-wrap;
-  }
+.preview {
+  background: #111;
+  padding: 15px;
+  margin-top: 20px;
+  min-height: 120px;
+  white-space: pre-wrap;
+}
 </style>
 </head>
 
 <body>
 
-<h1>🎤 Voice Markdown Recorder</h1>
+<h1>🎤 Voice Recorder</h1>
 <p id="status">準備完了</p>
 
 <button id="recordButton">押して話す</button>
+<button id="saveAllButton">まとめて保存</button>
 
 <pre id="preview" class="preview"></pre>
 
@@ -74,85 +66,60 @@ document.addEventListener("DOMContentLoaded", () => {
 let recognition;
 let isPressing = false;
 let buffer = "";
+let notes = []; // 🔥 まとめ保存用
 
 const btn = document.getElementById("recordButton");
 const preview = document.getElementById("preview");
 const status = document.getElementById("status");
 
 // ======================
-// 音声認識チェック
+// 音声認識
 // ======================
 if (!('webkitSpeechRecognition' in window)) {
-  status.textContent = "❌ 非対応ブラウザ";
+  status.textContent = "非対応ブラウザ";
   return;
 }
 
-// ======================
-// 初期化
-// ======================
 recognition = new webkitSpeechRecognition();
 recognition.lang = "ja-JP";
 recognition.continuous = false;
 recognition.interimResults = true;
 
-// ======================
 // 音声取得
-// ======================
 recognition.onresult = (event) => {
   for (let i = event.resultIndex; i < event.results.length; i++) {
     if (event.results[i].isFinal) {
       buffer += event.results[i][0].transcript + "\n";
     }
   }
-  preview.textContent = buffer;
+  preview.textContent = notes.join("\n---\n") + "\n" + buffer;
 };
 
-// ======================
-// 録音終了時（ここで保存）
-// ======================
-recognition.onend = async () => {
+// 🔥 録音終了時
+recognition.onend = () => {
 
-  // 録音中なら再開（iPhone対策）
   if (isPressing) {
-    try {
-      recognition.start();
-    } catch(e) {}
+    recognition.start();
     return;
   }
 
-  // 保存処理
   if (!buffer.trim()) {
     status.textContent = "⚠️ 音声取得失敗";
     return;
   }
 
-  const timestamp = new Date().toISOString();
+  // 🔥 蓄積
+  notes.push(buffer);
 
-  try {
-    const res = await fetch("https://dreamgroove1.fuwafuwow.workers.dev/", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": "mysecret123"
-      },
-      body: JSON.stringify({
-        content: buffer,
-        tag: "voice",
-        timestamp
-      })
-    });
+  buffer = "";
 
-    const data = await res.json();
-    status.textContent = "☁ 保存完了";
+  status.textContent = `📝 ${notes.length}件たまってます`;
 
-  } catch (e) {
-    console.error(e);
-    status.textContent = "❌ 保存失敗";
-  }
+  preview.textContent = notes.join("\n---\n");
 };
 
 // ======================
-// タッチ開始（録音開始）
+// 録音開始
 // ======================
 btn.addEventListener("touchstart", (e) => {
   e.preventDefault();
@@ -161,17 +128,15 @@ btn.addEventListener("touchstart", (e) => {
 
   isPressing = true;
   buffer = "";
-  status.textContent = "🎤 録音中...";
   btn.classList.add("recording");
+  status.textContent = "🎤 録音中";
 
-  try {
-    recognition.start();
-  } catch(e) {}
+  recognition.start();
 
 }, { passive: false });
 
 // ======================
-// タッチ終了（録音停止）
+// 録音終了
 // ======================
 btn.addEventListener("touchend", (e) => {
   e.preventDefault();
@@ -183,7 +148,52 @@ btn.addEventListener("touchend", (e) => {
   btn.classList.remove("recording");
 
   status.textContent = "⏳ 処理中...";
+
 }, { passive: false });
+
+// ======================
+// まとめて保存
+// ======================
+document.getElementById("saveAllButton").addEventListener("click", async () => {
+
+  if (notes.length === 0) {
+    status.textContent = "⚠️ 保存する内容なし";
+    return;
+  }
+
+  status.textContent = "☁ まとめて保存中...";
+
+  const allText = notes.join("\n\n---\n\n");
+  const timestamp = new Date().toISOString();
+
+  try {
+    const res = await fetch("https://dreamgroove1.fuwafuwow.workers.dev/", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": "mysecret123"
+      },
+      body: JSON.stringify({
+        content: allText,
+        tag: "voice",
+        timestamp
+      })
+    });
+
+    const data = await res.json();
+
+    status.textContent = "☁ 保存完了";
+
+    // 🔥 リセット
+    notes = [];
+    preview.textContent = "";
+
+  } catch (e) {
+    console.error(e);
+    status.textContent = "❌ 保存失敗";
+  }
+
+});
 
 });
 </script>
